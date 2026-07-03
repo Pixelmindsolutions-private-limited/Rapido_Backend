@@ -15,7 +15,10 @@ router.put('/location', authenticate, authorize('rider'), riderController.update
 router.get('/location/:riderId', authenticate, riderController.getRiderLocation);
 
 // ==================== RIDER DETAILS ====================
-router.get('/:riderId', authenticate, riderController.getRiderById);
+router.get('/:riderId', riderController.getRiderById);
+
+router.get('/rides/new', authenticate, authorize('rider'), riderController.getNewRideNotifications);
+
 
 // ==================== RIDER RIDES ====================
 router.put('/ride/accept/:rideId', authenticate, authorize('rider'), riderController.acceptRide);

@@ -1,6 +1,7 @@
 import Rider from '../models/Rider.js';
 import User from '../models/User.js';
 import Ride from '../models/Ride.js';
+import { calculateDistance } from '../utils/fareCalculator.js';
 
 // ==================== RIDER PROFILE ====================
 export const getMyProfile = async (req, res) => {
@@ -222,6 +223,8 @@ export const getRiderById = async (req, res) => {
   }
 };
 
+
+
 // ==================== RIDER RIDE FUNCTIONS ====================
 
 // ✅ Helper: Generate 4-digit OTP
@@ -231,6 +234,122 @@ export const getRiderById = async (req, res) => {
 
 const generateRideOTP = 1234;
 
+// ✅ Get new ride notifications for active rider
+export const getNewRideNotifications = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    // ✅ Get rider details
+    const rider = await Rider.findOne({ userId });
+    if (!rider) {
+      return res.status(404).json({
+        success: false,
+        message: 'Rider profile not found'
+      });
+    }
+
+    // ✅ Check if rider is approved
+    if (!rider.isApproved) {
+      return res.status(403).json({
+        success: false,
+        message: 'Your account is not approved yet'
+      });
+    }
+
+    // ✅ Check if rider is online
+    if (!rider.isOnline) {
+      return res.status(403).json({
+        success: false,
+        message: 'You are offline. Please go online first'
+      });
+    }
+
+    // ✅ Check if rider has location
+    if (!rider.currentLocation || rider.currentLocation.coordinates[0] === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please update your location first'
+      });
+    }
+
+    // ✅ Get all searching rides (not expired, not rejected by this rider)
+    const rides = await Ride.find({
+      status: 'searching',
+      expiresAt: { $gt: new Date() },
+      rejectedRiders: { $ne: rider._id }
+    })
+    .populate('userId', 'name phoneNumber')
+    .sort({ createdAt: -1 })
+    .limit(20);
+
+    // ✅ If no rides available
+    if (rides.length === 0) {
+      return res.status(200).json({
+        success: true,
+        message: 'No new ride notifications',
+        data: {
+          rides: [],
+          count: 0,
+          riderStatus: {
+            isApproved: rider.isApproved,
+            isOnline: rider.isOnline,
+            hasLocation: true
+          }
+        }
+      });
+    }
+
+    // ✅ Calculate distance and filter within 5km
+    const nearbyRides = rides.map(ride => {
+      const distance = calculateDistance(
+        rider.currentLocation.coordinates[1],
+        rider.currentLocation.coordinates[0],
+        ride.pickup.latitude,
+        ride.pickup.longitude
+      );
+      return {
+        rideId: ride._id,
+        userId: ride.userId,
+        pickup: ride.pickup,
+        dropoff: ride.dropoff,
+        distance: parseFloat(distance.toFixed(1)),
+        fare: ride.fare,
+        ladyCaptain: ride.ladyCaptain,
+        vehicleType: ride.vehicleType,
+        createdAt: ride.createdAt,
+        expiresAt: ride.expiresAt
+      };
+    })
+    .filter(ride => ride.distance <= 5)
+    .sort((a, b) => a.distance - b.distance);
+
+    return res.status(200).json({
+      success: true,
+      message: nearbyRides.length > 0 
+        ? `Found ${nearbyRides.length} new ride${nearbyRides.length > 1 ? 's' : ''} nearby` 
+        : 'No rides available nearby',
+      data: {
+        rides: nearbyRides,
+        count: nearbyRides.length,
+        riderStatus: {
+          isApproved: rider.isApproved,
+          isOnline: rider.isOnline,
+          location: {
+            latitude: rider.currentLocation.coordinates[1],
+            longitude: rider.currentLocation.coordinates[0]
+          }
+        }
+      }
+    });
+  } catch (err) {
+    console.error('Get new ride notifications error:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to get new ride notifications',
+      ...(process.env.NODE_ENV === 'development' && { error: err.message })
+    });
+  }
+};
 
 // ✅ Accept a ride with OTP generation
 export const acceptRide = async (req, res) => {
@@ -265,7 +384,7 @@ export const acceptRide = async (req, res) => {
       return res.status(404).json({
         success: false,
         message: 'Ride not found'
-      });
+      });      
     }
 
     if (ride.status !== 'searching') {
@@ -343,6 +462,92 @@ export const acceptRide = async (req, res) => {
 };
 
 // ✅ Reject a ride
+// export const rejectRide = async (req, res) => {
+//   try {
+//     const { rideId } = req.params;
+//     const userId = req.user.id;
+
+//     const rider = await Rider.findOne({ userId });
+//     if (!rider) {
+//       return res.status(404).json({
+//         success: false,
+//         message: 'Rider profile not found'
+//       });
+//     }
+
+//     const ride = await Ride.findById(rideId);
+//     if (!ride) {
+//       return res.status(404).json({
+//         success: false,
+//         message: 'Ride not found'
+//       });
+//     }
+
+//     if (ride.status !== 'searching') {
+//       return res.status(400).json({
+//         success: false,
+//         message: 'Ride is no longer available'
+//       });
+//     }
+
+//     if (!ride.rejectedRiders) ride.rejectedRiders = [];
+//     if (!ride.rejectedRiders.includes(rider._id)) {
+//       ride.rejectedRiders.push(rider._id);
+//       await ride.save();
+//     }
+
+//     const nearbyCount = await Rider.countDocuments({
+//       isApproved: true,
+//       isOnline: true,
+//       'currentLocation.coordinates': {
+//         $near: {
+//           $geometry: {
+//             type: 'Point',
+//             coordinates: [ride.pickup.longitude, ride.pickup.latitude]
+//           },
+//           $maxDistance: 5000
+//         }
+//       }
+//     });
+
+//     const rejectedCount = ride.rejectedRiders.length;
+
+//     const io = req.app.get('io');
+//     io.to(`user_${ride.userId}`).emit('ride:rejected', {
+//       rideId: ride._id,
+//       riderId: rider._id,
+//       rejectedCount: rejectedCount,
+//       totalRiders: nearbyCount,
+//       message: `${rejectedCount}/${nearbyCount} riders declined`
+//     });
+
+//     if (rejectedCount >= nearbyCount) {
+//       ride.status = 'expired';
+//       await ride.save();
+//       io.to(`user_${ride.userId}`).emit('ride:expired', {
+//         rideId: ride._id,
+//         message: 'No riders accepted. Please try again.'
+//       });
+//     }
+
+//     return res.status(200).json({
+//       success: true,
+//       message: 'Ride rejected',
+//       data: {
+//         rejectedCount,
+//         totalRiders: nearbyCount,
+//         remaining: nearbyCount - rejectedCount
+//       }
+//     });
+//   } catch (err) {
+//     return res.status(500).json({
+//       success: false,
+//       message: 'Failed to reject ride',
+//       ...(process.env.NODE_ENV === 'development' && { error: err.message })
+//     });
+//   }
+// };
+
 export const rejectRide = async (req, res) => {
   try {
     const { rideId } = req.params;
@@ -371,22 +576,24 @@ export const rejectRide = async (req, res) => {
       });
     }
 
+    // Track rejected riders
     if (!ride.rejectedRiders) ride.rejectedRiders = [];
     if (!ride.rejectedRiders.includes(rider._id)) {
       ride.rejectedRiders.push(rider._id);
       await ride.save();
     }
 
+    // ✅ FIX: Use $geoWithin instead of $near
     const nearbyCount = await Rider.countDocuments({
       isApproved: true,
       isOnline: true,
       'currentLocation.coordinates': {
-        $near: {
-          $geometry: {
-            type: 'Point',
-            coordinates: [ride.pickup.longitude, ride.pickup.latitude]
-          },
-          $maxDistance: 5000
+        $geoWithin: {
+          $centerSphere: [
+            [ride.pickup.longitude, ride.pickup.latitude],
+            // Convert 5km to radians (5km / 6378.1km)
+            5 / 6378.1
+          ]
         }
       }
     });
@@ -421,6 +628,7 @@ export const rejectRide = async (req, res) => {
       }
     });
   } catch (err) {
+    console.error('Reject ride error:', err);
     return res.status(500).json({
       success: false,
       message: 'Failed to reject ride',

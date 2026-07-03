@@ -277,6 +277,54 @@ io.on('connection', (socket) => {
     }
   });
 
+
+  // ✅ ---- 6. RIDER ACCEPTS RIDE (NEW) ----
+  socket.on('ride:accept-ride', (data) => {
+    const { rideId, riderId, userId } = data;
+    console.log(`✅ Rider ${riderId} accepted ride ${rideId}`);
+    io.to(`user_${userId}`).emit('ride:accepted', {
+      rideId,
+      riderId,
+      message: 'Rider accepted your ride! They are on the way.'
+    });
+  });
+
+  // ✅ ---- 7. RIDER REJECTS RIDE (NEW) ----
+  socket.on('ride:reject-ride', (data) => {
+    const { rideId, riderId, userId, rejectedCount, totalRiders } = data;
+    console.log(`❌ Rider ${riderId} rejected ride ${rideId}`);
+    io.to(`user_${userId}`).emit('ride:rejected', {
+      rideId,
+      riderId,
+      rejectedCount,
+      totalRiders,
+      message: `${rejectedCount}/${totalRiders} riders declined`
+    });
+  });
+
+  // ✅ ---- 8. RIDE STATUS UPDATE (NEW) ----
+  socket.on('ride:status-update', (data) => {
+    const { rideId, userId, status, message } = data;
+    io.to(`user_${userId}`).emit('ride:status-update', {
+      rideId,
+      status,
+      message,
+      timestamp: new Date()
+    });
+    console.log(`📢 Ride ${rideId} status: ${status}`);
+  });
+
+  // ✅ ---- 9. RIDE CANCELLED (NEW) ----
+  socket.on('ride:cancelled', (data) => {
+    const { rideId, userId, message } = data;
+    io.to(`user_${userId}`).emit('ride:cancelled', {
+      rideId,
+      message,
+      timestamp: new Date()
+    });
+    console.log(`❌ Ride ${rideId} cancelled`);
+  });
+
   // ---- 6. DISCONNECT ----
   socket.on('disconnect', () => {
     console.log(`🔴 User disconnected: ${socket.id}`);

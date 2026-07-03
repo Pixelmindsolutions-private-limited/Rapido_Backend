@@ -16,6 +16,7 @@ router.put('/users/deactivate/:id', authenticateAdmin, adminController.deactivat
 router.put('/users/activate/:id', authenticateAdmin, adminController.activateUser);
 router.delete('/users/:id', authenticateAdmin, adminController.deleteUser);
 
+
 // ==================== ADMIN - RIDER MANAGEMENT ====================
 router.get('/riders', authenticateAdmin, adminController.getAllRiders);
 router.get('/riders/:id', authenticateAdmin, adminController.getRiderById);
