@@ -1,6 +1,7 @@
 import Admin from '../models/Admin.js';
 import User from '../models/User.js';
 import Rider from '../models/Rider.js';
+import Ride from '../models/Ride.js';
 import TokenService from '../utils/tokenService.js';
 
 
@@ -349,6 +350,104 @@ export const deleteRider = async (req, res) => {
       success: false,
       message: err.message,
       ...(process.env.NODE_ENV === 'development' && { error: err.stack })
+    });
+  }
+};
+
+export const getAllRides = async (req, res) => {
+  try {
+    const { status } = req.query;
+
+    const filter = {};
+
+    // Filter by status if provided
+    if (status) {
+      const validStatuses = [
+        'searching',
+        'accepted',
+        'started',
+        'completed',
+        'cancelled',
+        'expired'
+      ];
+
+      if (!validStatuses.includes(status)) {
+        return res.status(400).json({
+          success: false,
+          message: `Invalid status. Must be one of: ${validStatuses.join(', ')}`
+        });
+      }
+
+      filter.status = status;
+    }
+
+    const rides = await Ride.find(filter)
+      .populate('userId', 'name phoneNumber email')
+      .populate('riderId', 'fullName')
+      .sort({ createdAt: -1 });
+
+    return res.status(200).json({
+      success: true,
+      message: status
+        ? `${status} rides fetched successfully`
+        : 'All rides fetched successfully',
+      data: {
+        rides,
+        count: rides.length,
+        status: status || 'all'
+      }
+    });
+
+  } catch (err) {
+    console.error('Get all rides error:', err);
+
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch rides',
+      ...(process.env.NODE_ENV === 'development' && {
+        error: err.message
+      })
+    });
+  }
+};
+export const getRideById = async (req, res) => {
+  try {
+    const { rideId } = req.body;
+
+    if (!rideId) {
+      return res.status(400).json({
+        success: false,
+        message: 'rideId is required',
+      });
+    }
+
+    const ride = await Ride.findById(rideId)
+      .populate('userId', 'name phoneNumber email')
+      .populate('riderId', 'fullName');
+
+    if (!ride) {
+      return res.status(404).json({
+        success: false,
+        message: 'Ride not found',
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Ride fetched successfully',
+      data: {
+        ride,
+      },
+    });
+  } catch (err) {
+    console.error('Get ride by ID error:', err);
+
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch ride',
+      ...(process.env.NODE_ENV === 'development' && {
+        error: err.message,
+      }),
     });
   }
 };

@@ -24,4 +24,9 @@ router.put('/riders/verify/:id', authenticateAdmin, adminController.updateVerifi
 router.put('/riders/online/:id', authenticateAdmin, adminController.toggleRiderOnlineStatus);
 router.delete('/riders/:id', authenticateAdmin, adminController.deleteRider);
 
+
+//===================== ADMIN - Booking====================
+router.get('/users-bookings', adminController.getAllRides);
+router.post('/rides/get-by-id', authenticateAdmin, adminController.getRideById);
+
 export default router;
