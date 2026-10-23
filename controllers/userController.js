@@ -174,7 +174,7 @@ export const getUserLocation = async (req, res) => {
 export const findNearbyRiders = async (req, res) => {
   try {
     const userId = req.user.id;
-    const { latitude, longitude, radius = 5 } = req.query;
+    const { latitude, longitude, radius = 5, vehicleType  } = req.query;
 
     // ✅ Get user location
     let searchLat = latitude;
@@ -196,8 +196,8 @@ export const findNearbyRiders = async (req, res) => {
     const lat = parseFloat(searchLat);
     const lng = parseFloat(searchLng);
 
-    // ✅ Find nearby riders (only approved and online)
-    const nearbyRiders = await Rider.find({
+    // ✅ Build query — filter by vehicle type if provided
+    const query = {
       isApproved: true,
       isOnline: true,
       'currentLocation.coordinates': {
@@ -209,9 +209,34 @@ export const findNearbyRiders = async (req, res) => {
           $maxDistance: radius * 1000
         }
       }
-    });
+    };
 
-    // ✅ Super minimal response - only what's needed for map
+    // ✅ Vehicle type filter
+    // Map car_premium → 'car' (stored value) but keep display
+    if (vehicleType) {
+      const validTypes = ['bike', 'auto', 'car', 'car_premium', 'parcel'];
+      if (!validTypes.includes(vehicleType)) {
+        return res.status(400).json({
+          success: false,
+          message: `Invalid vehicle type. Must be one of: ${validTypes.join(', ')}`
+        });
+      }
+
+      // Map car_premium and parcel to their base stored type
+      const storedTypeMap = {
+        bike: 'bike',
+        auto: 'auto',
+        car: 'car',
+        car_premium: 'car',
+        parcel: 'bike'
+      };
+
+      query['vehicle.type'] = storedTypeMap[vehicleType];
+    }
+
+    // ✅ Find nearby riders
+    const nearbyRiders = await Rider.find(query);
+
     const formattedRiders = nearbyRiders.map(rider => ({
       id: rider._id,
       name: rider.fullName,
@@ -223,10 +248,13 @@ export const findNearbyRiders = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      message: `Found ${formattedRiders.length} nearby riders`,
+      message: vehicleType
+        ? `Found ${formattedRiders.length} nearby ${vehicleType} riders`
+        : `Found ${formattedRiders.length} nearby riders`,
       data: {
         nearbyRiders: formattedRiders,
         count: formattedRiders.length,
+        vehicleType: vehicleType || 'all',
         radius: radius,
         searchLocation: {
           latitude: lat,
