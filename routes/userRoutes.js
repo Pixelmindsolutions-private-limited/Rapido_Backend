@@ -13,6 +13,8 @@ router.put('/location', authenticate, userController.updateUserLocation);
 router.get('/location', authenticate, userController.getUserLocation);
 router.get('/nearby/riders', authenticate, userController.findNearbyRiders);
 
+router.post('/ride/estimate', authenticate, userController.getFareEstimate);
+
 // ==================== USER RIDES ====================
 router.post('/ride/request', authenticate, userController.requestRide);
 router.get('/ride/status/:rideId', authenticate, userController.getRideStatus);

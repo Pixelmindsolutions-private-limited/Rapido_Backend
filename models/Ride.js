@@ -32,7 +32,7 @@ const rideSchema = new mongoose.Schema(
     fare: { type: Number, required: true },
     vehicleType: { 
       type: String, 
-      enum: ['bike', 'auto', 'car'], 
+      enum: ['bike', 'auto', 'car', 'car_premium', 'parcel'], 
       default: 'bike' 
     },
     
