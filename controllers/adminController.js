@@ -5,6 +5,133 @@ import Ride from '../models/Ride.js';
 import TokenService from '../utils/tokenService.js';
 
 
+
+// ==================== ADMIN REGISTER ====================
+export const registerAdmin = async (req, res) => {
+  try {
+    const { name, email, phoneNumber, password, role } = req.body;
+
+    // 1. Validate required fields
+    if (!name || !email || !phoneNumber || !password) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide name, email, phone number, and password.',
+      });
+    }
+
+    // 2. Check if admin already exists (by email or phone)
+    const existingAdmin = await Admin.findOne({
+      $or: [{ email: email.toLowerCase() }, { phoneNumber }],
+    });
+
+    if (existingAdmin) {
+      return res.status(400).json({
+        success: false,
+        message: 'An admin with this email or phone number already exists.',
+      });
+    }
+
+    // 3. Create the admin
+    // Note: The password will be hashed automatically by the pre('save') hook in Admin.js
+    const admin = await Admin.create({
+      name,
+      email: email.toLowerCase(),
+      phoneNumber,
+      password,
+      role: role || 'admin', // Defaults to 'admin' if not provided
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: 'Admin registered successfully.',
+      data: {
+        admin: {
+          id: admin._id,
+          name: admin.name,
+          email: admin.email,
+          role: admin.role,
+        },
+      },
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: err.message,
+      ...(process.env.NODE_ENV === 'development' && { error: err.stack }),
+    });
+  }
+};
+
+// ==================== ADMIN LOGIN ====================
+export const loginAdmin = async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    // 1. Validate required fields
+    if (!email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide both email and password.',
+      });
+    }
+
+    // 2. Find admin by email
+    const admin = await Admin.findOne({ email: email.toLowerCase() });
+
+    if (!admin) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid credentials.', // Generic message for security
+      });
+    }
+
+    // 3. Check if active
+    if (!admin.isActive) {
+      return res.status(403).json({
+        success: false,
+        message: 'Your admin account has been deactivated.',
+      });
+    }
+
+    // 4. Verify password using the method defined in Admin.js
+    const isMatch = await admin.comparePassword(password);
+
+    if (!isMatch) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid credentials.',
+      });
+    }
+
+    // 5. Update last login timestamp
+    admin.lastLogin = new Date();
+    await admin.save();
+
+    // 6. Generate token
+    const token = TokenService.generateToken(admin);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Login successful.',
+      data: {
+        token,
+        admin: {
+          id: admin._id,
+          name: admin.name,
+          email: admin.email,
+          role: admin.role,
+        },
+      },
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: err.message,
+      ...(process.env.NODE_ENV === 'development' && { error: err.stack }),
+    });
+  }
+};
+
 // ==================== ADMIN PROFILE ====================
 export const getProfile = async (req, res) => {
   try {

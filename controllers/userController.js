@@ -341,12 +341,152 @@ export const getFareEstimate = async (req, res) => {
 
 // ===================== Booking  Rides =======================
 
+// export const requestRide = async (req, res) => {
+//   try {
+//     const userId = req.user.id;
+//     const { pickup, dropoff, vehicleType = 'bike', ladyCaptain = false } = req.body;
+
+//     // ✅ Validate input
+//     if (!pickup || !dropoff || 
+//         !pickup.latitude || !pickup.longitude || 
+//         !dropoff.latitude || !dropoff.longitude) {
+//       return res.status(400).json({
+//         success: false,
+//         message: 'Pickup and dropoff locations with coordinates are required'
+//       });
+//     }
+
+//     // ✅ Validate vehicleType
+//     const validVehicleTypes = ['bike', 'auto', 'car', 'car_premium', 'parcel'];
+//     if (!validVehicleTypes.includes(vehicleType)) {
+//       return res.status(400).json({
+//         success: false,
+//         message: `Invalid vehicle type. Must be: ${validVehicleTypes.join(', ')}`
+//       });
+//     }
+
+//     // ✅ Check existing active ride
+//     const existingRide = await Ride.findOne({
+//       userId,
+//       status: { $in: ['searching', 'accepted', 'started'] }
+//     });
+
+//     if (existingRide) {
+//       return res.status(400).json({
+//         success: false,
+//         message: 'You already have an active ride',
+//         data: { rideId: existingRide._id, status: existingRide.status }
+//       });
+//     }
+
+//     // ✅ Get real road distance from Google Maps
+//     const routeData = await getRouteDistance(pickup, dropoff);
+//     const distance = routeData.distanceKm;
+//     const durationMinutes = routeData.durationMinutes;
+//     const polyline = routeData.polyline;
+
+//     // ✅ Calculate fare
+//     const fare = calculateFare(distance, vehicleType, ladyCaptain);
+
+//     // ✅ Create ride
+//     const ride = new Ride({
+//       userId,
+//       pickup,
+//       dropoff,
+//       distance,
+//       fare,
+//       vehicleType,
+//       ladyCaptain,
+//       status: 'searching',
+//       expiresAt: new Date(Date.now() + 30 * 1000)
+//     });
+
+//     await ride.save();
+
+//     // ✅ Find nearby riders matching vehicle type
+//     const nearbyRiders = await Rider.find({
+//       isApproved: true,
+//       isOnline: true,
+//       'vehicle.type': vehicleType === 'car_premium' ? 'car' : 
+//                       vehicleType === 'parcel' ? 'bike' : vehicleType,
+//       ...(ladyCaptain && { gender: 'female' }),
+//       'currentLocation.coordinates': {
+//         $near: {
+//           $geometry: {
+//             type: 'Point',
+//             coordinates: [pickup.longitude, pickup.latitude]
+//           },
+//           $maxDistance: 5000
+//         }
+//       }
+//     }).select('_id');
+
+//     if (nearbyRiders.length === 0) {
+//       ride.status = 'expired';
+//       await ride.save();
+//       return res.status(404).json({
+//         success: false,
+//         message: ladyCaptain 
+//           ? 'No lady riders available for this vehicle type. Try without Lady Captain.' 
+//           : 'No riders available nearby for this vehicle type.'
+//       });
+//     }
+
+//     // ✅ Send to riders via Socket.IO
+//     const io = req.app.get('io');
+//     nearbyRiders.forEach(r => {
+//       io.to(`rider_${r._id}`).emit('ride:new-request', {
+//         rideId: ride._id,
+//         userId: userId,
+//         pickup: pickup,
+//         dropoff: dropoff,
+//         distance: distance.toFixed(1),
+//         duration: durationMinutes,
+//         fare: fare,
+//         ladyCaptain: ladyCaptain,
+//         vehicleType: vehicleType,
+//         timestamp: new Date()
+//       });
+//     });
+
+//     // ✅ Notify user
+//     io.to(`user_${userId}`).emit('ride:searching', {
+//       rideId: ride._id,
+//       totalRiders: nearbyRiders.length,
+//       message: `Searching for riders... (0/${nearbyRiders.length})`
+//     });
+
+//     return res.status(201).json({
+//       success: true,
+//       message: 'Ride requested. Searching for riders...',
+//       data: {
+//         rideId: ride._id,
+//         status: 'searching',
+//         totalRiders: nearbyRiders.length,
+//         distance: distance.toFixed(1),
+//         duration: durationMinutes,
+//         fare: fare,
+//         polyline: polyline,
+//         vehicleType: vehicleType,
+//         expiresIn: '30 seconds'
+//       }
+//     });
+//   } catch (err) {
+//     console.error('Request ride error:', err);
+//     return res.status(500).json({
+//       success: false,
+//       message: 'Failed to request ride',
+//       ...(process.env.NODE_ENV === 'development' && { error: err.message })
+//     });
+//   }
+// };
+
 export const requestRide = async (req, res) => {
   try {
     const userId = req.user.id;
     const { pickup, dropoff, vehicleType = 'bike', ladyCaptain = false } = req.body;
 
-    // ✅ Validate input
+    // ✅ Validate pickup and dropoff
     if (!pickup || !dropoff || 
         !pickup.latitude || !pickup.longitude || 
         !dropoff.latitude || !dropoff.longitude) {
@@ -356,12 +496,12 @@ export const requestRide = async (req, res) => {
       });
     }
 
-    // ✅ Validate vehicleType
+    // ✅ Validate vehicle type
     const validVehicleTypes = ['bike', 'auto', 'car', 'car_premium', 'parcel'];
     if (!validVehicleTypes.includes(vehicleType)) {
       return res.status(400).json({
         success: false,
-        message: `Invalid vehicle type. Must be: ${validVehicleTypes.join(', ')}`
+        message: `Invalid vehicle type. Must be one of: ${validVehicleTypes.join(', ')}`
       });
     }
 
@@ -388,6 +528,16 @@ export const requestRide = async (req, res) => {
     // ✅ Calculate fare
     const fare = calculateFare(distance, vehicleType, ladyCaptain);
 
+    // ✅ Map vehicle type to stored type
+    const storedTypeMap = {
+      bike: 'bike',
+      auto: 'auto',
+      car: 'car',
+      car_premium: 'car',
+      parcel: 'bike'
+    };
+    const storedVehicleType = storedTypeMap[vehicleType];
+
     // ✅ Create ride
     const ride = new Ride({
       userId,
@@ -407,32 +557,32 @@ export const requestRide = async (req, res) => {
     const nearbyRiders = await Rider.find({
       isApproved: true,
       isOnline: true,
-      'vehicle.type': vehicleType === 'car_premium' ? 'car' : 
-                      vehicleType === 'parcel' ? 'bike' : vehicleType,
+      'vehicle.type': storedVehicleType,
       ...(ladyCaptain && { gender: 'female' }),
       'currentLocation.coordinates': {
         $near: {
           $geometry: {
             type: 'Point',
-            coordinates: [pickup.longitude, pickup.latitude]
+            coordinates: [parseFloat(pickup.longitude), parseFloat(pickup.latitude)]
           },
           $maxDistance: 5000
         }
       }
     }).select('_id');
 
+    // ✅ No riders available
     if (nearbyRiders.length === 0) {
       ride.status = 'expired';
       await ride.save();
       return res.status(404).json({
         success: false,
         message: ladyCaptain 
-          ? 'No lady riders available for this vehicle type. Try without Lady Captain.' 
-          : 'No riders available nearby for this vehicle type.'
+          ? `No lady riders available for ${vehicleType}. Try without Lady Captain.` 
+          : `No ${vehicleType} riders available nearby.`
       });
     }
 
-    // ✅ Send to riders via Socket.IO
+    // ✅ Send ride request to riders via Socket.IO
     const io = req.app.get('io');
     nearbyRiders.forEach(r => {
       io.to(`rider_${r._id}`).emit('ride:new-request', {
@@ -449,25 +599,25 @@ export const requestRide = async (req, res) => {
       });
     });
 
-    // ✅ Notify user
+    // ✅ Notify user searching
     io.to(`user_${userId}`).emit('ride:searching', {
       rideId: ride._id,
       totalRiders: nearbyRiders.length,
-      message: `Searching for riders... (0/${nearbyRiders.length})`
+      message: `Searching for ${vehicleType} riders... (0/${nearbyRiders.length})`
     });
 
     return res.status(201).json({
       success: true,
-      message: 'Ride requested. Searching for riders...',
+      message: `Ride requested. Searching for ${vehicleType} riders...`,
       data: {
         rideId: ride._id,
         status: 'searching',
+        vehicleType: vehicleType,
         totalRiders: nearbyRiders.length,
         distance: distance.toFixed(1),
         duration: durationMinutes,
         fare: fare,
         polyline: polyline,
-        vehicleType: vehicleType,
         expiresIn: '30 seconds'
       }
     });
